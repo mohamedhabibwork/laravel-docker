@@ -1,0 +1,139 @@
+version: "3.8"
+services:
+    app.test:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP}'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        ports:
+            - '${APP_PORT:-8888}:80'
+        env_file:
+            -   docker-compose.env
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_ROOT: 1
+#            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+#            XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - appnetwork
+        depends_on:
+            - adminer
+            - pgadmin4
+            - redis
+            - selenium
+            - memcached
+            - mailhog
+            - meilisearch
+    pgsql:
+        image: 'postgres:13'
+        env_file:
+            -   docker-compose.env
+        ports:
+            - '${FORWARD_DB_PORT:-5432}:5432'
+        environment:
+            PGPASSWORD: '${DB_PASSWORD:-secret}'
+            POSTGRES_DB: '${DB_DATABASE}'
+            POSTGRES_USER: '${DB_USERNAME}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-secret}'
+        volumes:
+            - 'appnetworkpgsql:/var/lib/postgresql/data'
+        networks:
+            - appnetwork
+        healthcheck:
+            test: [ "CMD", "pg_isready", "-q", "-d", "${DB_DATABASE}", "-U", "${DB_USERNAME}" ]
+            retries: 3
+            timeout: 5s
+    redis:
+        image: 'redis:alpine'
+        env_file:
+            -   docker-compose.env
+        ports:
+            - '${FORWARD_REDIS_PORT:-6379}:6379'
+        volumes:
+            - 'appnetworkredis:/data'
+        networks:
+            - appnetwork
+        healthcheck:
+            test: [ "CMD", "redis-cli", "ping" ]
+            retries: 3
+            timeout: 5s
+    selenium:
+        image: 'selenium/standalone-chrome'
+        env_file:
+            -   docker-compose.env
+        volumes:
+            - '/dev/shm:/dev/shm'
+        networks:
+            - appnetwork
+    memcached:
+        image: 'memcached:alpine'
+        env_file:
+            -   docker-compose.env
+        ports:
+            - '11211:11211'
+        networks:
+            - appnetwork
+    mailhog:
+        image: 'mailhog/mailhog:latest'
+        env_file:
+            -   docker-compose.env
+        ports:
+            - '${FORWARD_MAILHOG_PORT:-1025}:1025'
+            - '${FORWARD_MAILHOG_DASHBOARD_PORT:-8025}:8025'
+        networks:
+            - appnetwork
+    meilisearch:
+        image: 'getmeili/meilisearch:latest'
+        env_file:
+            -   docker-compose.env
+        ports:
+            - '${FORWARD_MEILISEARCH_PORT:-7700}:7700'
+        volumes:
+            - 'sailmeilisearch:/data.ms'
+        networks:
+            - appnetwork
+        healthcheck:
+            test: [ "CMD", "wget", "--no-verbose", "--spider",  "http://localhost:7700/health" ]
+            retries: 3
+            timeout: 5s
+    adminer:
+        image: adminer
+        env_file:
+            -   docker-compose.env
+        restart: always
+        ports:
+            - "8080:8080"
+        networks:
+            - appnetwork
+        depends_on:
+            - pgsql
+    pgadmin4:
+        image: dpage/pgadmin4
+        env_file:
+            -   docker-compose.env
+        container_name: pgadmin4
+        ports:
+            - '5050:80'
+        environment:
+            PGADMIN_DEFAULT_EMAIL: "admin@app.com"
+            PGADMIN_DEFAULT_PASSWORD: "123456789"
+        networks:
+            - appnetwork
+        depends_on:
+            - pgsql
+
+networks:
+    appnetwork:
+        driver: bridge
+volumes:
+    appnetworkredis:
+        driver: local
+    appnetworkpgsql:
+        driver: local
+    sailmeilisearch:
+        driver: local
